@@ -3,6 +3,7 @@ package org.example.project
 import DatabaseViewModel
 import Model
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
@@ -16,6 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.Button
 import androidx.compose.material.MaterialTheme
@@ -23,10 +25,12 @@ import androidx.compose.material.OutlinedTextField
 import androidx.compose.material.Surface
 import androidx.compose.material.Text
 import androidx.compose.material.TextButton
+import androidx.compose.material.TextField
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -42,7 +46,6 @@ fun App() {
         val models by testvm.models.collectAsStateWithLifecycle()
         testvm.fetchModels()
         var showDialog by remember { mutableStateOf(false) }
-        var isUpdate by remember { mutableStateOf(false) }
 
         Column(Modifier.fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally) {
@@ -54,26 +57,13 @@ fun App() {
                     Text("Добавить запись")
                 }
 
-                Button(onClick = {
-                    showDialog = true
-                    isUpdate = true
-                }) {
-                    Text("Изменить запись")
-                }
-
                 if (showDialog) {
                     ParameterDialog(
                         onDismissRequest = {
                             showDialog = false
-                            isUpdate = false
                         },
-                        onConfirm = if(isUpdate)
-                            {id, width, length, height, desc ->
-                                testvm.updateModels(id, width, length, height, desc)}
-                        else
-                            {id, width, length, height, desc ->
-                                testvm.addModel(width, length, height, desc)},
-                        isUpdate
+                        {width, length, height, desc ->
+                            testvm.addModel(width, length, height, desc)}
                     )
                 }
 
@@ -85,12 +75,11 @@ fun App() {
                     Text("Удалить строчку")
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
             }
 
             LazyColumn(modifier = Modifier.fillMaxWidth()) {
                 items(models) { model ->
-                    ModelRow(model)
+                    ModelRow(model, testvm::updateModels)
                 }
             }
         }
@@ -98,14 +87,34 @@ fun App() {
 }
 
 @Composable
-fun ModelRow(model: Model){
+fun ModelRow(model: Model, onUpdate: (id: Int, width: Int, length: Int, height: Int, desc: String) -> Unit){
     Row(modifier = Modifier.height(IntrinsicSize.Min),
         horizontalArrangement = Arrangement.SpaceEvenly){
         TableCell(model.idModel.toString(), .1f)
-        TableCell(model.widthModel.toString(), .1f)
-        TableCell(model.lengthModel.toString(), .1f)
-        TableCell(model.heightModel.toString(), .1f)
-        TableCell(model.descModel, .4f)
+        EditableTableCell(
+            text = model.widthModel.toString(),
+            weight = .1f,
+            onValueChange = { newValue -> onUpdate(model.idModel, newValue.toInt(), model.lengthModel, model.heightModel, model.descModel) },
+            isNumeric = true
+        )
+        EditableTableCell(
+            text = model.lengthModel.toString(),
+            weight = .1f,
+            onValueChange = { newValue -> onUpdate(model.idModel,  model.widthModel,  newValue.toInt(), model.heightModel, model.descModel) },
+            isNumeric = true
+        )
+        EditableTableCell(
+            text = model.heightModel.toString(),
+            weight = .1f,
+            onValueChange = { newValue -> onUpdate(model.idModel,  model.widthModel, model.lengthModel,  newValue.toInt(), model.descModel) },
+            isNumeric = true
+        )
+        EditableTableCell(
+            text = model.descModel,
+            weight = .4f,
+            onValueChange = { newValue -> onUpdate(model.idModel,  model.widthModel, model.lengthModel, model.heightModel,  newValue) },
+            isNumeric = false
+        )
     }
 }
 
@@ -124,12 +133,54 @@ fun RowScope.TableCell(
 }
 
 @Composable
+fun RowScope.EditableTableCell(
+    text: String,
+    weight: Float,
+    onValueChange: (String) -> Unit,
+    isNumeric: Boolean
+) {
+    var isEditing by remember { mutableStateOf(false) }
+    var value by remember { mutableStateOf(text) }
+
+    if (isEditing) {
+        TextField(
+            value = value,
+            onValueChange = { newValue -> if (!isNumeric || newValue.all { it.isDigit() }) {
+                value = newValue
+            }},
+            modifier = Modifier
+                .fillMaxHeight()
+                .border(1.dp, Color.Black)
+                .weight(weight)
+                .padding(8.dp),
+            singleLine = true,
+            keyboardOptions = KeyboardOptions.Default.copy(
+                imeAction = ImeAction.Done,
+                keyboardType = if (isNumeric) KeyboardType.Number else KeyboardType.Text
+            ),
+            keyboardActions = KeyboardActions(onDone = {
+                isEditing = false
+                onValueChange(value)
+            })
+        )
+    } else {
+        Text(
+            text = value,
+            modifier = Modifier
+                .fillMaxHeight()
+                .border(1.dp, Color.Black)
+                .weight(weight)
+                .padding(8.dp)
+                .clickable { isEditing = true }
+        )
+    }
+}
+
+@Composable
 fun ParameterDialog(
     onDismissRequest: () -> Unit,
-    onConfirm: (Int, Int, Int, Int, String) -> Unit,
-    isUpdating: Boolean = false
+    onConfirm: ( Int, Int, Int, String) -> Unit,
 ) {
-    var id by remember { mutableStateOf("0") }
     var width by remember { mutableStateOf("0") }
     var length by remember { mutableStateOf("0") }
     var heigth by remember { mutableStateOf("0") }
@@ -145,16 +196,6 @@ fun ParameterDialog(
             ) {
                 Text("Введите информацию о модели")
 
-                if (isUpdating)
-                    OutlinedTextField(
-                        value = id,
-                        onValueChange = { newValue ->
-                            id = newValue.filter { it.isDigit() }
-                        },
-                        label = { Text("ID:") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.fillMaxWidth()
-                    )
 
                 OutlinedTextField(
                     value = width,
@@ -205,7 +246,7 @@ fun ParameterDialog(
                     Spacer(modifier = Modifier.width(8.dp))
                     TextButton(
                         onClick = {
-                            onConfirm(id.toInt(), width.toInt(), length.toInt(), heigth.toInt(), desc)
+                            onConfirm(width.toInt(), length.toInt(), heigth.toInt(), desc)
                             onDismissRequest()
                         }
                     ) {
