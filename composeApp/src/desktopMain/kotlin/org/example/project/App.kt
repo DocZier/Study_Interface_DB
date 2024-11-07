@@ -221,25 +221,27 @@ fun RowScope.EditableTableCell(
     isNumeric: Boolean
 ) {
     var isEditing by remember { mutableStateOf(false) }
-    //var value by remember { mutableStateOf(TextFieldValue(text)) }
+    var value by remember { mutableStateOf(TextFieldValue(text)) }
     val focusRequester = remember { FocusRequester() }
+
+
     if (isEditing) {
         LaunchedEffect(Unit) {
             focusRequester.requestFocus()
+            value = value.copy(selection = TextRange(value.text.length))
         }
         TextField(
-            value = text,
-            onValueChange = { newValue ->
-                if (!isNumeric || newValue.all { it.isDigit() }) {
-                    onValueChange(newValue)
-                }
-            },
+            value = value,
+            onValueChange = { newValue -> if (!isNumeric || newValue.text.all { it.isDigit() }) {
+                value = newValue
+            }},
             modifier = Modifier
                 .fillMaxHeight()
                 .border(1.dp, Color.Black)
                 .weight(weight)
                 .padding(8.dp)
-                .focusRequester(focusRequester),
+                .focusRequester(focusRequester)
+            ,
             singleLine = true,
             keyboardOptions = KeyboardOptions.Default.copy(
                 imeAction = ImeAction.Done,
@@ -247,6 +249,8 @@ fun RowScope.EditableTableCell(
             ),
             keyboardActions = KeyboardActions(onDone = {
                 isEditing = false
+                val finalValue = if (isNumeric && value.text.isEmpty()) "0" else value.text
+                onValueChange(finalValue)
             })
         )
     } else {
@@ -257,11 +261,13 @@ fun RowScope.EditableTableCell(
                 .border(1.dp, Color.Black)
                 .weight(weight)
                 .padding(8.dp)
-                .clickable { isEditing = true }
+                .clickable {
+                    isEditing = true
+                    value = TextFieldValue(text)
+                }
         )
     }
 }
-
 
 @Composable
 fun AddModelDialog(
