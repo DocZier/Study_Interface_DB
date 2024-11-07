@@ -29,9 +29,14 @@ import androidx.compose.material.TextField
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -47,6 +52,9 @@ fun App() {
         testvm.fetchModels()
         var showDialog by remember { mutableStateOf(false) }
 
+        var sortByColumn by remember { mutableStateOf<SortColumn?>(null) }
+        var sortAscending by remember { mutableStateOf(true) }
+
         Column(Modifier.fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally) {
 
@@ -58,7 +66,7 @@ fun App() {
                 }
 
                 if (showDialog) {
-                    ParameterDialog(
+                    AddModelDialog(
                         onDismissRequest = {
                             showDialog = false
                         },
@@ -68,9 +76,8 @@ fun App() {
                 }
 
                 Button(onClick = {
-                    val last_id = models.last().idModel
-                    testvm.deleteModels(last_id)
-
+                    val lastId = models.last().idModel
+                    testvm.deleteModels(lastId)
                 }) {
                     Text("Удалить строчку")
                 }
@@ -78,13 +85,87 @@ fun App() {
             }
 
             LazyColumn(modifier = Modifier.fillMaxWidth()) {
-                items(models) { model ->
+                item {
+                    Row(modifier = Modifier.height(IntrinsicSize.Min),
+                        horizontalArrangement = Arrangement.SpaceEvenly) {
+                        TableHeader("ID", .1f, "idModel", sortByColumn, sortAscending) {
+                            sortByColumn = SortColumn.Id
+                            sortAscending = !sortAscending
+                        }
+                        TableHeader("Ширина", .1f, "widthModel", sortByColumn, sortAscending) {
+                            sortByColumn = SortColumn.Width
+                            sortAscending = !sortAscending
+                        }
+                        TableHeader("Длина", .1f, "lengthModel", sortByColumn, sortAscending) {
+                            sortByColumn = SortColumn.Length
+                            sortAscending = !sortAscending
+                        }
+                        TableHeader("Высота", .1f, "heightModel", sortByColumn, sortAscending) {
+                            sortByColumn = SortColumn.Height
+                            sortAscending = !sortAscending
+                        }
+                        TableHeader("Описание", .4f, "descModel", sortByColumn, sortAscending) {
+                            sortByColumn = SortColumn.Description
+                            sortAscending = !sortAscending
+                        }
+                    }
+                }
+
+                items(sortModels(models, sortByColumn, sortAscending)) { model ->
                     ModelRow(model, testvm::updateModels)
                 }
             }
         }
     }
 }
+
+enum class SortColumn {
+    Id, Width, Length, Height, Description
+}
+
+@Composable
+fun RowScope.TableHeader(
+    text: String,
+    weight: Float,
+    columnName: String,
+    sortByColumn: SortColumn?,
+    sortAscending: Boolean,
+    onClick: () -> Unit
+) {
+    val isSelected = when (columnName) {
+        "idModel" -> sortByColumn == SortColumn.Id
+        "widthModel" -> sortByColumn == SortColumn.Width
+        "lengthModel" -> sortByColumn == SortColumn.Length
+        "heightModel" -> sortByColumn == SortColumn.Height
+        "descModel" -> sortByColumn == SortColumn.Description
+        else -> false
+    }
+
+    Text(
+        text = text,
+        modifier = Modifier
+            .fillMaxHeight()
+            .border(1.dp, Color.Black)
+            .weight(weight)
+            .padding(8.dp)
+            .clickable { onClick() },
+        style = MaterialTheme.typography.body1.copy(
+            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+        )
+    )
+}
+
+fun sortModels(models: List<Model>, sortByColumn: SortColumn?, sortAscending: Boolean): List<Model> {
+    return when (sortByColumn) {
+        SortColumn.Id -> if (sortAscending) models.sortedBy { it.idModel } else models.sortedByDescending { it.idModel }
+        SortColumn.Width -> if (sortAscending) models.sortedBy { it.widthModel } else models.sortedByDescending { it.widthModel }
+        SortColumn.Length -> if (sortAscending) models.sortedBy { it.lengthModel } else models.sortedByDescending { it.lengthModel }
+        SortColumn.Height -> if (sortAscending) models.sortedBy { it.heightModel } else models.sortedByDescending { it.heightModel }
+        SortColumn.Description -> if (sortAscending) models.sortedBy { it.descModel } else models.sortedByDescending { it.descModel }
+        else -> models
+    }
+}
+
 
 @Composable
 fun ModelRow(model: Model, onUpdate: (id: Int, width: Int, length: Int, height: Int, desc: String) -> Unit){
@@ -140,19 +221,27 @@ fun RowScope.EditableTableCell(
     isNumeric: Boolean
 ) {
     var isEditing by remember { mutableStateOf(false) }
-    var value by remember { mutableStateOf(text) }
+    var value by remember { mutableStateOf(TextFieldValue(text)) }
+    val focusRequester = remember { FocusRequester() }
+
 
     if (isEditing) {
+        LaunchedEffect(Unit) {
+            focusRequester.requestFocus()
+            value = value.copy(selection = TextRange(value.text.length))
+        }
         TextField(
             value = value,
-            onValueChange = { newValue -> if (!isNumeric || newValue.all { it.isDigit() }) {
+            onValueChange = { newValue -> if (!isNumeric || newValue.text.all { it.isDigit() }) {
                 value = newValue
             }},
             modifier = Modifier
                 .fillMaxHeight()
                 .border(1.dp, Color.Black)
                 .weight(weight)
-                .padding(8.dp),
+                .padding(8.dp)
+                .focusRequester(focusRequester)
+            ,
             singleLine = true,
             keyboardOptions = KeyboardOptions.Default.copy(
                 imeAction = ImeAction.Done,
@@ -160,12 +249,13 @@ fun RowScope.EditableTableCell(
             ),
             keyboardActions = KeyboardActions(onDone = {
                 isEditing = false
-                onValueChange(value)
+                val finalValue = if (isNumeric && value.text.isEmpty()) "0" else value.text
+                onValueChange(finalValue)
             })
         )
     } else {
         Text(
-            text = value,
+            text = value.text,
             modifier = Modifier
                 .fillMaxHeight()
                 .border(1.dp, Color.Black)
@@ -177,7 +267,7 @@ fun RowScope.EditableTableCell(
 }
 
 @Composable
-fun ParameterDialog(
+fun AddModelDialog(
     onDismissRequest: () -> Unit,
     onConfirm: ( Int, Int, Int, String) -> Unit,
 ) {
